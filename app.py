@@ -173,8 +173,7 @@ def update_graph(selected_junction):
         filtered_df["Vehicles"])
 
     # Видалення тренду
-    diff = filtered_df["Vehicles"].diff()
-    residuals = diff - diff.mean()  # Різниця від середнього як залишки
+    residuals = filtered_df["Vehicles"].diff()
     fig_residuals = px.line(filtered_df, x='DateTime', y=residuals,
                             title=f'Vehicle Count at Junction {selected_junction}')
     fig_residuals.update_layout(xaxis_title="Date & Time",
