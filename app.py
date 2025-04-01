@@ -83,6 +83,55 @@ app.layout = html.Div(children=[
 
 # Колбек для оновлення графіка, таблиць та кореляційного аналізу
 
+# === Функції для обчислень ===
+
+
+def calculate_sign_test(data):
+    """Виконує знаковий тест для визначення тренду."""
+    diff = data.diff().dropna()
+    positive_signs_count = (diff > 0).sum()
+
+    n = len(diff)
+    expected_positive_signs = n / 2
+    positive_signs_variance = (n + 1) / 12
+    standardized_test_stat = (
+        positive_signs_count - expected_positive_signs) / (positive_signs_variance ** 0.5)
+    critical_threshold = stats.norm.ppf(1 - 0.05 / 2)
+
+    hypothesis_result = "Trend Detected" if abs(
+        standardized_test_stat) > critical_threshold else "No Trend"
+
+    return [{
+        "Positive Signs Count": positive_signs_count,
+        "Expected Positive Signs": expected_positive_signs,
+        "Positive Signs Variance": round(positive_signs_variance, 4),
+        "Standardized Test Stat": round(standardized_test_stat, 4),
+        "Critical Threshold": round(critical_threshold, 4),
+        "Hypothesis Test": hypothesis_result
+    }]
+
+
+def calculate_mannwhitney_test(data):
+    """Виконує тест Манна-Уітні для порівняння періодів."""
+    data = data.dropna().values
+    n = len(data)
+    half = n // 2
+
+    if half < 10:  # Мінімально осмислена кількість для тесту
+        return [{"Mann Rank Statistic": "N/A", "p-value": "N/A", "Hypothesis Test": "Not enough data"}]
+
+    statistic, p_value = stats.mannwhitneyu(
+        data[:half], data[half:], alternative='two-sided')
+    hypothesis_result = "Trend Detected" if p_value < 0.05 else "No Trend"
+
+    return [{
+        "Mann Rank Statistic": round(statistic, 2),
+        "p-value": round(p_value, 4),
+        "Hypothesis Test": hypothesis_result
+    }]
+
+
+# === Колбеки ===
 
 @callback(
     [Output('indicator-graphic', 'figure'),
@@ -100,49 +149,12 @@ def update_graph(selected_junction):
     fig.update_layout(xaxis_title="Date & Time",
                       yaxis_title="Number of Vehicles", hovermode='x unified')
 
-    # --- Аналіз методом знаків ---
-    df_grouped = filtered_df.copy()
-    df_grouped["diff"] = df_grouped["Vehicles"].diff()
-    df_grouped["sign"] = df_grouped["diff"].apply(lambda x: 1 if x > 0 else 0)
+    # Виконання тестів
+    sign_test_result = calculate_sign_test(filtered_df["Vehicles"])
+    mannwhitney_test_result = calculate_mannwhitney_test(
+        filtered_df["Vehicles"])
 
-    positive_signs_count = df_grouped["sign"].sum()
-    expected_positive_signs = (len(df_grouped) - 1) / 2
-    positive_signs_variance = (len(df_grouped) + 1) / 12
-    standardized_test_stat = (
-        positive_signs_count - expected_positive_signs) / (positive_signs_variance ** 0.5)
-    critical_threshold = stats.norm.ppf(1 - 0.05 / 2)
-
-    hypothesis_result = "Trend Detected" if abs(
-        standardized_test_stat) > critical_threshold else "No Trend"
-
-    table_data = [{
-        "Positive Signs Count": positive_signs_count,
-        "Expected Positive Signs": expected_positive_signs,
-        "Positive Signs Variance": round(positive_signs_variance, 4),
-        "Standardized Test Stat": round(standardized_test_stat, 4),
-        "Critical Threshold": round(critical_threshold, 4),
-        "Hypothesis Test": hypothesis_result
-    }]
-
-    # --- Ранговий тест Манна ---
-    data = df_grouped["Vehicles"].dropna().values  # Видаляємо NaN, якщо є
-    n = len(data)
-    half = n // 2
-
-    data_part1 = data[:half]
-    data_part2 = data[half:]
-
-    statistic, p_value = stats.mannwhitneyu(
-        data_part1, data_part2, alternative='two-sided')
-    mannwhitney_conclusion = "Trend Detected" if p_value < 0.05 else "No Trend"
-
-    mannwhitney_table_data = [{
-        "Mann Rank Statistic": statistic,
-        "p-value": round(p_value, 4),
-        "Hypothesis Test": mannwhitney_conclusion
-    }]
-
-    return fig, table_data, mannwhitney_table_data
+    return fig, sign_test_result, mannwhitney_test_result
 
 
 @callback(
@@ -177,4 +189,4 @@ def update_correlation_graph(selected_junction, lags):
 
 # Запуск сервера
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
