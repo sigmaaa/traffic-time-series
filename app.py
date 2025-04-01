@@ -65,20 +65,36 @@ app.layout = html.Div(children=[
     dcc.Graph(id='correlation-graph'),
     # Повзунок для вибору лагів
     html.Label("Select number of lags:"),
-    html.Div([
-        dcc.Slider(
-            id='lag-slider',
-            min=1,
-            max=50,
-            step=1,
-            value=10,
-            marks={i: {'label': str(i), 'style': {'fontSize': '14px'}}
-                   for i in range(0, 51, 5)},
-            tooltip={"placement": "bottom", "always_visible": True},
-            updatemode='drag',
-            included=False
-        )
-    ], style={'margin-bottom': '10%'})
+    dcc.Slider(
+        id='lag-slider',
+        min=1,
+        max=50,
+        step=1,
+        value=10,
+        marks={i: {'label': str(i), 'style': {'fontSize': '14px'}}
+               for i in range(0, 51, 5)},
+        tooltip={"placement": "bottom", "always_visible": True},
+        updatemode='drag',
+        included=False
+    ),
+
+    html.H3("Trend-Removed Traffic Graph", style={'textAlign': 'center'}),
+    dcc.Graph(id='residuals-graphic'),
+
+    html.H3("Sign Method Residuals Analysis", style={'textAlign': 'center'}),
+    dash_table.DataTable(
+        id='sign-method-table-residuals',
+        columns=[
+            {"name": "Positive Signs Count", "id": "Positive Signs Count"},
+            {"name": "Expected Positive Signs", "id": "Expected Positive Signs"},
+            {"name": "Positive Signs Variance", "id": "Positive Signs Variance"},
+            {"name": "Standardized Test Stat", "id": "Standardized Test Stat"},
+            {"name": "Critical Threshold", "id": "Critical Threshold"},
+            {"name": "Hypothesis Test", "id": "Hypothesis Test"},
+        ],
+        style_table={'margin': 'auto'},
+        style_cell={'textAlign': 'center'}
+    ),
 ])
 
 # Колбек для оновлення графіка, таблиць та кореляційного аналізу
@@ -136,12 +152,14 @@ def calculate_mannwhitney_test(data):
 @callback(
     [Output('indicator-graphic', 'figure'),
      Output('sign-method-table', 'data'),
-     Output('mann-rank-table', 'data')],
+     Output('mann-rank-table', 'data'),
+     Output('residuals-graphic', 'figure'),
+     Output('sign-method-table-residuals', 'data')],
     Input('junction-selection', 'value')
 )
 def update_graph(selected_junction):
-    filtered_df = df[df["Junction"] ==
-                     selected_junction][["DateTime", "Vehicles"]]
+    filtered_df = df[df["Junction"] == selected_junction][[
+        "DateTime", "Vehicles"]].dropna()
 
     # Візуалізація
     fig = px.line(filtered_df, x='DateTime', y='Vehicles',
@@ -154,7 +172,15 @@ def update_graph(selected_junction):
     mannwhitney_test_result = calculate_mannwhitney_test(
         filtered_df["Vehicles"])
 
-    return fig, sign_test_result, mannwhitney_test_result
+    # Видалення тренду
+    diff = filtered_df["Vehicles"].diff()
+    residuals = diff - diff.mean()  # Різниця від середнього як залишки
+    fig_residuals = px.line(filtered_df, x='DateTime', y=residuals,
+                            title=f'Vehicle Count at Junction {selected_junction}')
+    fig_residuals.update_layout(xaxis_title="Date & Time",
+                                yaxis_title="Number of Vehicles", hovermode='x unified')
+    sign_test_residuals_result = calculate_sign_test(residuals)
+    return fig, sign_test_result, mannwhitney_test_result, fig_residuals, sign_test_residuals_result
 
 
 @callback(
