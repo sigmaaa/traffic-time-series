@@ -3,6 +3,7 @@ import plotly.express as px
 import pandas as pd
 import numpy as np
 import scipy.stats as stats
+import pymannkendall as mk
 from statsmodels.tsa.stattools import acf
 
 # Завантаження даних
@@ -50,9 +51,16 @@ app.layout = html.Div(children=[
     dash_table.DataTable(
         id='mann-rank-table',
         columns=[
-            {"name": "Mann Rank Statistic", "id": "Mann Rank Statistic"},
-            {"name": "p-value", "id": "p-value"},
-            {"name": "Hypothesis Test", "id": "Hypothesis Test"},
+            {"name": "Trend Direction", "id": "trend_direction"},
+            {"name": "p-value", "id": "p_value"},
+            {"name": "Hypothesis Test Result (Reject Null)",
+             "id": "test_result"},
+            {"name": "Z-statistic", "id": "z_statistic"},
+            {"name": "Kendall's Tau", "id": "kendall_tau"},
+            {"name": "S-statistic", "id": "s_statistic"},
+            {"name": "Variance of S", "id": "var_s"},
+            {"name": "Slope of Trend Line", "id": "slope"},
+            {"name": "Intercept of Trend Line", "id": "intercept"}
         ],
         style_table={'margin': 'auto'},
         style_cell={'textAlign': 'center'}
@@ -127,27 +135,21 @@ def calculate_sign_test(data):
     }]
 
 
-def calculate_mannwhitney_test(data):
-    """Виконує тест Манна-Уітні для порівняння періодів."""
-    data = data.dropna().values
-    n = len(data)
-    half = n // 2
-
-    if half < 10:  # Мінімально осмислена кількість для тесту
-        return [{"Mann Rank Statistic": "N/A", "p-value": "N/A", "Hypothesis Test": "Not enough data"}]
-
-    statistic, p_value = stats.mannwhitneyu(
-        data[:half], data[half:], alternative='two-sided')
-    hypothesis_result = "Trend Detected" if p_value < 0.05 else "No Trend"
-
+def calculate_mann_rank_test(data):
+    mann_ranking_test_result = mk.original_test(data)
     return [{
-        "Mann Rank Statistic": round(statistic, 2),
-        "p-value": round(p_value, 4),
-        "Hypothesis Test": hypothesis_result
+        "trend_direction": mann_ranking_test_result.trend,
+        "p_value": float(mann_ranking_test_result.p),
+        "test_result": "Reject" if mann_ranking_test_result.h else "Do not reject",
+        "z_statistic": float(mann_ranking_test_result.z),
+        "kendall_tau": float(mann_ranking_test_result.Tau),
+        "s_statistic": float(mann_ranking_test_result.s),
+        "var_s": float(mann_ranking_test_result.var_s),
+        "slope": float(mann_ranking_test_result.slope),
+        "intercept": float(mann_ranking_test_result.intercept)
     }]
-
-
 # === Колбеки ===
+
 
 @callback(
     [Output('indicator-graphic', 'figure'),
@@ -169,7 +171,7 @@ def update_graph(selected_junction):
 
     # Виконання тестів
     sign_test_result = calculate_sign_test(filtered_df["Vehicles"])
-    mannwhitney_test_result = calculate_mannwhitney_test(
+    mann_ranking_test_result = calculate_mann_rank_test(
         filtered_df["Vehicles"])
 
     # Видалення тренду
@@ -179,7 +181,7 @@ def update_graph(selected_junction):
     fig_residuals.update_layout(xaxis_title="Date & Time",
                                 yaxis_title="Number of Vehicles", hovermode='x unified')
     sign_test_residuals_result = calculate_sign_test(residuals)
-    return fig, sign_test_result, mannwhitney_test_result, fig_residuals, sign_test_residuals_result
+    return fig, sign_test_result, mann_ranking_test_result, fig_residuals, sign_test_residuals_result
 
 
 @callback(
