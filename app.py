@@ -1,4 +1,6 @@
-from dash import Dash, dcc, html, Input, Output, callback, dash_table
+import base64
+import io
+from dash import Dash, State, dcc, html, Input, Output, callback, dash_table
 import plotly.express as px
 import pandas as pd
 import numpy as np
@@ -15,8 +17,29 @@ app = Dash(__name__)
 
 # Макет сторінки
 app.layout = html.Div(children=[
+    dcc.Store(id='stored-data'),
     html.H1('Traffic Monitoring Dashboard', style={'textAlign': 'center'}),
 
+    dcc.Upload(
+        id='upload-data',
+        children=html.Div([
+            'Drag and Drop or ',
+            html.A('Select Files')
+        ]),
+        style={
+            'width': '100%',
+            'height': '60px',
+            'lineHeight': '60px',
+            'borderWidth': '1px',
+            'borderStyle': 'dashed',
+            'borderRadius': '5px',
+            'textAlign': 'center',
+            'margin': '10px'
+        },
+        # Allow multiple files to be uploaded
+        multiple=True
+    ),
+    html.Div(id='output-data-upload'),
     html.Label('Select Junction:'),
     dcc.Dropdown(
         id='junction-selection',
@@ -67,8 +90,6 @@ app.layout = html.Div(children=[
     ),
 
     html.H3("Autocorrelation Function (ACF)", style={'textAlign': 'center'}),
-
-
 
     dcc.Graph(id='correlation-graph'),
     # Повзунок для вибору лагів
@@ -157,9 +178,16 @@ def calculate_mann_rank_test(data):
      Output('mann-rank-table', 'data'),
      Output('residuals-graphic', 'figure'),
      Output('sign-method-table-residuals', 'data')],
-    Input('junction-selection', 'value')
+    [Input('junction-selection', 'value',),
+     Input('stored-data', 'data')]
 )
-def update_graph(selected_junction):
+def update_graph(selected_junction, stored_data):
+    if stored_data is not None:
+        df = pd.DataFrame(stored_data)
+    else:
+        df = pd.read_csv("train_ML_IOT.csv")
+        df["DateTime"] = pd.to_datetime(df["DateTime"])
+
     filtered_df = df[df["Junction"] == selected_junction][[
         "DateTime", "Vehicles"]].dropna()
 
@@ -187,9 +215,16 @@ def update_graph(selected_junction):
 @callback(
     Output('correlation-graph', 'figure'),
     [Input('junction-selection', 'value'),
-     Input('lag-slider', 'value')]
+     Input('lag-slider', 'value'),
+     Input('stored-data', 'data')]
 )
-def update_correlation_graph(selected_junction, lags):
+def update_correlation_graph(selected_junction, lags, stored_data):
+    if stored_data is not None:
+        df = pd.DataFrame(stored_data)
+    else:
+        df = pd.read_csv("train_ML_IOT.csv")
+        df["DateTime"] = pd.to_datetime(df["DateTime"])
+
     # Фільтрація даних
     vehicles = df[df["Junction"] == selected_junction]["Vehicles"].dropna()
 
@@ -212,6 +247,42 @@ def update_correlation_graph(selected_junction, lags):
     )
 
     return fig
+
+
+@callback(
+    [Output('output-data-upload', 'children'),
+     Output('stored-data', 'data')],
+    Input('upload-data', 'contents'),
+    State('upload-data', 'filename'),
+    State('upload-data', 'last_modified')
+)
+def update_output(list_of_contents, list_of_names, list_of_dates):
+    if list_of_contents is not None:
+        all_data = []
+        for contents, filename, date in zip(list_of_contents, list_of_names, list_of_dates):
+            content_type, content_string = contents.split(',')
+            decoded = base64.b64decode(content_string)
+            try:
+                if 'csv' in filename:
+                    df_uploaded = pd.read_csv(
+                        io.StringIO(decoded.decode('utf-8')))
+                elif 'xls' in filename:
+                    df_uploaded = pd.read_excel(io.BytesIO(decoded))
+                all_data.append(df_uploaded)
+            except Exception as e:
+                print(e)
+                return html.Div(['Error reading file']), None
+
+        df_combined = pd.concat(all_data)
+        df_combined["DateTime"] = pd.to_datetime(df_combined["DateTime"])
+        table_display = dash_table.DataTable(
+            df_combined.to_dict('records'),
+            [{'name': i, 'id': i} for i in df_combined.columns],
+            page_size=10
+        )
+        return table_display, df_combined.to_dict('records')
+
+    return html.Div(['No file uploaded']), None
 
 
 # Запуск сервера
