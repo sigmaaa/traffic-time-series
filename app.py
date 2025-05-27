@@ -126,11 +126,16 @@ def weighted_moving_average(data, l=7, p=3):
 
     n = len(data)
     smoothed = np.full(n, np.nan)
-    for i in range(p, n-l):
-        window_data = np.array(data[i:i+l])
+
+    for i in range(p, n - l):
+        window_data = np.array(data[i:i + l])
         smoothed_value = np.sum(window_data * weights)
         smoothed[i] = smoothed_value
-    return np.array(smoothed)
+
+    # Replace np.nan with original data where smoothing wasn't applied
+    smoothed = np.where(np.isnan(smoothed), data, smoothed)
+
+    return smoothed
 
 
 def get_linear_trend(data):
@@ -230,15 +235,15 @@ def update_all(selected_junction, stored_data):
     # Обчислення трендів і коефіцієнтів
     filtered_df["Smoothed"] = weighted_moving_average(filtered_df["Vehicles"])
     filtered_df["LinearTrend"], a_lin, b_lin = get_linear_trend(
-        filtered_df["Vehicles"])
+        filtered_df["Smoothed"])
     filtered_df["NonlinearTrend"], a_nonlin, b_nonlin = get_nonlinear_trend(
-        filtered_df["Vehicles"])
+        filtered_df["Smoothed"])
     filtered_df["CustomTrend"], params_custom = get_custom_trend(
-        filtered_df["Vehicles"])
+        filtered_df["Smoothed"])
     daily_fourier = seasonal_fourier_component(
-        filtered_df["Vehicles"], k=3, period=24)
+        filtered_df["Smoothed"], k=3, period=24)
     weekly_fourier = seasonal_fourier_component(
-        filtered_df["Vehicles"], k=2, period=24*7)
+        filtered_df["Smoothed"], k=2, period=24*7)
     seasonal = daily_fourier + weekly_fourier
     filtered_df["FourierSeasonal"] = seasonal
     filtered_df["FourierSeasonal + LinearTrend"] = seasonal + \
@@ -247,7 +252,7 @@ def update_all(selected_junction, stored_data):
     # Прогноз
     n_steps = 100
     forecast_values, a_forecast, b_forecast = forecast_next_n_steps(
-        filtered_df["Vehicles"], n_steps=n_steps)
+        filtered_df["Smoothed"], n_steps=n_steps)
     last_date = filtered_df["DateTime"].iloc[-1]
     future_dates = pd.date_range(
         start=last_date + pd.Timedelta(hours=1), periods=n_steps, freq='H')
@@ -257,9 +262,9 @@ def update_all(selected_junction, stored_data):
     fig.add_scatter(x=filtered_df["DateTime"], y=filtered_df["Vehicles"],
                     mode='lines', name='Original', line=dict(color='lightgray'))
     fig.add_scatter(x=filtered_df["DateTime"], y=filtered_df["Smoothed"],
-                    mode='lines', name='Smoothed (MNK)', line=dict(color='blue'))
+                    mode='lines', name='Smoothed (WMA)', line=dict(color='blue'))
     fig.add_scatter(x=filtered_df["DateTime"], y=filtered_df["LinearTrend"],
-                    mode='lines', name='Linear Trend (MNK)', line=dict(color='red'))
+                    mode='lines', name='Linear Trend (LMS)', line=dict(color='red'))
     fig.add_scatter(x=filtered_df["DateTime"], y=filtered_df["NonlinearTrend"],
                     mode='lines', name='Nonlinear Trend', line=dict(color='green'))
     fig.add_scatter(x=filtered_df["DateTime"], y=filtered_df["CustomTrend"],
